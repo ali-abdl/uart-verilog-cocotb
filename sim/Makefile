@@ -17,4 +17,7 @@ export PYTHONPATH := $(PWD)/../tb:$(PYTHONPATH)
 # override the divisor parameter at compile time
 COMPILE_ARGS += -Pbaud_gen.DIVISOR=4
 
+VERILOG_SOURCES += $(PWD)/../tb/dump.v
+COMPILE_ARGS += -s dump
+
 include $(shell cocotb-config --makefiles)/Makefile.sim 
