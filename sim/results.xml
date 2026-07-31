@@ -1,6 +1,0 @@
-<testsuites name="results">
-  <testsuite name="all" package="all">
-    <property name="random_seed" value="1785473190" />
-    <testcase name="test_tick_period" classname="test_baud_gen" file="/workspaces/uart-verilog-cocotb/tb/test_baud_gen.py" lineno="7" time="0.0021436214447021484" sim_time_ns="190.001" ratio_time="88635.51933088644" />
-  </testsuite>
-</testsuites>
