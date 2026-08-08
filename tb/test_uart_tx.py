@@ -109,11 +109,12 @@ async def test_busy_and_done_handshake(dut):
 class Scoreboard:
     """Tracks expected butes and compares them agaisnt what the monitor sees."""
 
-    def __init__(self,log):
+    def __init__(self,log, max_reports=10):
         self.log = log
         self.expected = []
         self.checked = 0
         self.errors = 0
+        self.max_reports = max_reports
 
     def expect(self, value):
         self.expected.append(value)
@@ -127,8 +128,11 @@ class Scoreboard:
         exp = self.expected.pop(0)
         self.checked += 1
         if actual != exp:
-            self.errors +=1
-            self.log.error (f"mismatch: expected 0x {exp:02x}, got 0x {actual:02x}")
+            self.errors += 1
+            if self.errors <= self.max_reports:
+                self.log.error(f"mismatch: expected 0x{exp:02X}, got 0x{actual:02X}")
+            elif self.errors == self.max_reports + 1:
+                self.log.error(f"... suppressing further mismatch reports")
 
 async def tx_monitor(dut, scoreboard):
     """Runs forever, decoding every frame that appears on the wire."""
