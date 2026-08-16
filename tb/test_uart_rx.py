@@ -68,3 +68,54 @@ async def test_patterns(dut):
         assert err == 0, f"framing error on 0x{value:02X}"
         dut._log.info(f"ok: 0x{value:02X}")
         await ClockCycles(dut.clk, CLKS_PER_BIT)
+
+
+@cocotb.test()
+async def test_framing_error(dut):
+    """A stop bit held low must raise rx_frame_error."""
+    cocotb.start_soon(Clock(dut.clk, CLK_PERIOD_NS, units="ns").start())
+    await reset_dut(dut)
+
+    cocotb.start_soon(uart_send(dut, 0x3C, stop_bit=0))
+    data, err = await wait_for_byte(dut)
+
+    assert err == 1, "expected rx_frame_error to assert"
+    assert data == 0x3C, f"data should still be reported, got 0x{data:02X}"
+    dut._log.info("framing error correctly detected")
+
+
+@cocotb.test()
+async def test_recovery_after_error(dut):
+    """After a corrupt frame, the next good frame must still decode."""
+    cocotb.start_soon(Clock(dut.clk, CLK_PERIOD_NS, units="ns").start())
+    await reset_dut(dut)
+
+    cocotb.start_soon(uart_send(dut, 0x3C, stop_bit=0))
+    _, err = await wait_for_byte(dut)
+    assert err == 1, "setup: expected a framing error"
+
+    await ClockCycles(dut.clk, CLKS_PER_BIT * 2)
+
+    cocotb.start_soon(uart_send(dut, 0x7E))
+    data, err = await wait_for_byte(dut)
+
+    assert data == 0x7E, f"expected 0x7E after recovery, got 0x{data:02X}"
+    assert err == 0, "receiver did not recover cleanly"
+    dut._log.info("recovered correctly after framing error")
+
+
+@cocotb.test()
+async def test_glitch_rejected(dut):
+    """A short low pulse on an idle line must not produce a byte."""
+    cocotb.start_soon(Clock(dut.clk, CLK_PERIOD_NS, units="ns").start())
+    await reset_dut(dut)
+
+    dut.rx_serial.value = 0
+    await ClockCycles(dut.clk, CLKS_PER_BIT // 4)   # quarter-bit glitch
+    dut.rx_serial.value = 1
+
+    for _ in range(CLKS_PER_BIT * 12):
+        await RisingEdge(dut.clk)
+        assert dut.rx_valid.value == 0, "glitch was decoded as a byte"
+
+    dut._log.info("glitch correctly rejected")
