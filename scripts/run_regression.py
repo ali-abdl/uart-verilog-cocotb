@@ -11,18 +11,22 @@ SUITES = ["baud_gen", "uart_tx", "uart_rx", "loopback"]
 
 
 def run_suite(name):
-    """Run one suite, return (passed, failed, note)."""
+    """Run one suite; return (passed, failed, note)."""
     sim_dir = ROOT / "sim" / name
+    results = sim_dir / "results.xml"
+
+    # Delete stale results first, so a failed build can't report an old pass
+    if results.exists():
+        results.unlink()
 
     subprocess.run(
         ["make", "clean"], cwd=sim_dir,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
     )
-    subprocess.run(["make"], cwd=sim_dir, check=False)
+    proc = subprocess.run(["make"], cwd=sim_dir, check=False)
 
-    results = sim_dir / "results.xml"
     if not results.exists():
-        return 0, 1, "no results.xml - simulation crashed"
+        return 0, 1, f"no results.xml (make exited {proc.returncode})"
 
     passed = failed = 0
     for testcase in ET.parse(results).iter("testcase"):
