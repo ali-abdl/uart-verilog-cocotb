@@ -1,5 +1,6 @@
 import random
 from scoreboard import Scoreboard
+from coverage import Coverage
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, ClockCycles
@@ -156,3 +157,52 @@ async def test_randomized(dut):
     assert sb.checked == N, f"only {sb.checked}/{N} bytes reached the scoreboard"
     assert sb.errors == 0, f"{sb.errors} scoreboard errors"
     sb.report()
+
+@cocotb.test()
+async def test_coverage_closure(dut):
+    """Randomize first, then add directed stimulus to close remaining holes."""
+    cocotb.start_soon(Clock(dut.clk, CLK_PERIOD_NS, units="ns").start())
+    await reset_dut(dut)
+
+    cov = Coverage(dut._log, name="rx functional coverage")
+    cov.add_group("data_value", range(256))
+    cov.add_group("gap", ["back_to_back", "short", "long"])
+    cov.add_group("frame", ["clean", "framing_error"])
+
+    gap_cycles = {
+        "back_to_back": CLKS_PER_BIT // 4,
+        "short": CLKS_PER_BIT,
+        "long": 5 * CLKS_PER_BIT,
+    }
+
+    async def frame(value, stop_bit, gap_name):
+        sender = cocotb.start_soon(uart_send(dut, value, stop_bit=stop_bit))
+        data, err = await wait_for_byte(dut)
+        await sender
+
+        assert data == value, f"sent 0x{value:02X}, got 0x{data:02X}"
+        assert err == (0 if stop_bit else 1), f"wrong frame_error on 0x{value:02X}"
+
+        cov.sample("data_value", value)
+        cov.sample("gap", gap_name)
+        cov.sample("frame", "clean" if stop_bit else "framing_error")
+
+        await ClockCycles(dut.clk, gap_cycles[gap_name])
+
+    # ---- Phase 1: random stimulus ----
+    for _ in range(60):
+        value = random.randint(0, 255)
+        stop_bit = 0 if random.random() < 0.1 else 1
+        await frame(value, stop_bit, random.choice(list(gap_cycles)))
+
+    holes = cov.groups["data_value"].missing()
+    dut._log.info(
+        f"after randomization: data_value at "
+        f"{cov.groups['data_value'].percent:.1f}%, {len(holes)} holes remaining"
+    )
+
+    # ---- Phase 2: directed closure ----
+    for value in holes:
+        await frame(value, 1, "short")
+
+    assert cov.report(), "coverage goals not met"
