@@ -1,5 +1,5 @@
 import random
-
+from scoreboard import Scoreboard
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, ClockCycles
@@ -119,3 +119,40 @@ async def test_glitch_rejected(dut):
         assert dut.rx_valid.value == 0, "glitch was decoded as a byte"
 
     dut._log.info("glitch correctly rejected")
+
+async def rx_monitor(dut, scoreboard):
+    """Watch rx_valid and feed every received byte to the scoreboard."""
+    while True:
+        await RisingEdge(dut.clk)
+        if dut.rx_valid.value == 1:
+            if dut.rx_frame_error.value == 1:
+                scoreboard.errors += 1
+                scoreboard.log.error("unexpected framing error on a clean frame")
+            scoreboard.check(int(dut.rx_data.value))
+
+
+@cocotb.test()
+async def test_randomized(dut):
+    """Stream random bytes with random idle gaps; scoreboard checks them all."""
+    N = 100
+
+    cocotb.start_soon(Clock(dut.clk, CLK_PERIOD_NS, units="ns").start())
+    await reset_dut(dut)
+
+    sb = Scoreboard(dut._log, name="rx")
+    cocotb.start_soon(rx_monitor(dut, sb))
+
+    for _ in range(N):
+        value = random.randint(0, 255)
+        sb.expect(value)
+        await uart_send(dut, value)
+        await ClockCycles(dut.clk, random.randint(1, 2 * CLKS_PER_BIT))
+
+    for _ in range(20 * CLKS_PER_BIT):
+        if sb.checked == N:
+            break
+        await RisingEdge(dut.clk)
+
+    assert sb.checked == N, f"only {sb.checked}/{N} bytes reached the scoreboard"
+    assert sb.errors == 0, f"{sb.errors} scoreboard errors"
+    sb.report()
