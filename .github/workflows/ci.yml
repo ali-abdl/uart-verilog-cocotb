@@ -1,0 +1,37 @@
+name: regression
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: cocotb regression
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Icarus Verilog
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run regression
+        run: python3 scripts/run_regression.py
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-xml
+          path: sim/*/results.xml
