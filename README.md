@@ -2,7 +2,7 @@
 
 [![regression](https://github.com/ali-abdl/uart-verilog-cocotb/actions/workflows/ci.yml/badge.svg)](https://github.com/ali-abdl/uart-verilog-cocotb/actions/workflows/ci.yml)
 
-A full-duplex UART written in Verilog, together with a [cocotb](https://www.cocotb.org/) testbench
+A full duplex UART written in Verilog, together with a [cocotb](https://www.cocotb.org/) testbench
 that does the actual verifying: a driver, a monitor, a scoreboard, randomised stimulus, and
 functional coverage that gets closed rather than just measured.
 
@@ -494,8 +494,8 @@ C++, including [an I²C sensor driver with complementary-filter fusion](https://
 but no HDL at all.
 
 UART seemed like the right thing to start with because the design is small enough to understand
-completely while the receiver is genuinely not trivial: recovering timing without a clock is a real
-problem rather than a made-up exercise. cocotb was the other half of the appeal, since I wanted the
+completely while the receiver isn't trivial: recovering timing without a clock is a real
+problem I wanted to tackle. cocotb was the other half of the appeal, since I wanted the
 verification work to be the larger part of the project.
 
 ---
