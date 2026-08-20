@@ -3,8 +3,8 @@
 [![regression](https://github.com/ali-abdl/uart-verilog-cocotb/actions/workflows/ci.yml/badge.svg)](https://github.com/ali-abdl/uart-verilog-cocotb/actions/workflows/ci.yml)
 
 A full duplex UART written in Verilog, together with a [cocotb](https://www.cocotb.org/) testbench
-that does the actual verifying: a driver, a monitor, a scoreboard, randomised stimulus, and
-functional coverage that gets closed rather than just measured.
+that does the  verifying: a driver, a monitor, a scoreboard, randomised stimulus, and
+functional coverage that gets closed instead of just measured.
 
 There are 15 tests across 4 suites and they run on every push through GitHub Actions using
 [Icarus Verilog](https://steveicarus.github.io/iverilog/). If you open the repo in a Codespace, the
