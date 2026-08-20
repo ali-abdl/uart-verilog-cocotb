@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 
 module uart #(
-    parameter integer CLKS_PER_BIT = 32,
+    parameter integer CLKS_PER_BIT = 434,
     parameter integer OVERSAMPLE   = 16
 )(
     input  wire       clk,

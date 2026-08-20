@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 
 module uart_tx #(
-    parameter integer CLKS_PER_BIT = 27
+    parameter integer CLKS_PER_BIT = 434
 )(
 
     input wire clk,
