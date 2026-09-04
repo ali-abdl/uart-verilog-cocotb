@@ -1,15 +1,16 @@
-# UART Transceiver with cocotb Verification
+# UART Transceiver with cocotb Verification and SystemVerilog Assertions
 
 [![regression](https://github.com/ali-abdl/uart-verilog-cocotb/actions/workflows/ci.yml/badge.svg)](https://github.com/ali-abdl/uart-verilog-cocotb/actions/workflows/ci.yml)
 
 A full duplex UART written in Verilog, together with a [cocotb](https://www.cocotb.org/) testbench
-that does the  verifying: a driver, a monitor, a scoreboard, randomised stimulus, and
-functional coverage that gets closed instead of just measured.
+that does the verifying: a driver, a monitor, a scoreboard, randomised stimulus, and functional
+coverage that gets closed instead of just measured. On top of that, eleven SystemVerilog assertions
+bound to the two state machines, checking protocol rules on every cycle.
 
-There are 15 tests across 4 suites and they run on every push through GitHub Actions using
-[Icarus Verilog](https://steveicarus.github.io/iverilog/). If you open the repo in a Codespace, the
-devcontainer installs the toolchain for you and `python3 scripts/run_regression.py` will work
-straight away.
+15 cocotb tests across 4 suites and 2 assertion testbenches, all running on every push through GitHub
+Actions. The cocotb regression runs under [Icarus Verilog](https://steveicarus.github.io/iverilog/)
+and the assertions under [Verilator](https://www.veripool.org/verilator/). If you open the repo in a
+Codespace, the devcontainer installs the toolchain for you and everything works straight away.
 
 The testbench ended up being a bigger piece of work than the RTL.
 
@@ -29,12 +30,14 @@ The testbench ended up being a bigger piece of work than the RTL.
   - [The tests](#the-tests)
   - [Random stimulus](#random-stimulus)
   - [Coverage](#coverage)
+  - [Assertions](#assertions)
+  - [Two simulators](#two-simulators)
   - [Bug injection](#bug-injection)
 - [Waveforms](#waveforms)
 - [CI](#ci)
 - [Running it](#running-it)
 - [Design decisions](#design-decisions)
-- [What it doesn't do](#what-it-doesnt-do)
+- [Scope](#scope)
 
 ---
 
@@ -47,21 +50,28 @@ rtl/                     synthesisable design
   uart_rx.v              receiver FSM, 16x oversampling
   uart.v                 full-duplex top level
 
-tb/                      testbenches + shared verification code
+tb/                      cocotb testbenches + shared verification code
   scoreboard.py          expected-vs-actual checker
   coverage.py            functional coverage collector
   dump.v                 VCD capture (sim only)
   uart_loopback.v        harness that ties tx_serial to rx_serial
   test_*.py              one testbench per DUT
 
+sva/                     SystemVerilog assertions + their testbenches
+  uart_tx_sva.sv         4 properties, bound into uart_tx
+  uart_rx_sva.sv         7 properties, bound into uart_rx
+  tb_uart_tx_sva.sv      SystemVerilog testbench driving frames
+  tb_uart_rx_sva.sv
+
 sim/                     one directory per DUT, plus common.mk
 scripts/run_regression.py
+scripts/run_sva.py
 docs/waveforms/
 .github/workflows/ci.yml
 ```
 
-Only code that could plausibly become gates lives in `rtl/`. The waveform dumper and the loopback
-harness are simulation-only, so they sit in `tb/` instead.
+Only code that could plausibly become gates lives in `rtl/`. The waveform dumper, the loopback
+harness and everything under `sva/` are simulation-only.
 
 ---
 
@@ -299,6 +309,49 @@ problem predicts, and it is the reason "I ran a lot of random tests" is not a co
 reads the uncovered bins back out of the coverage object and drives exactly those values, so the
 closure is driven by the measurement rather than by guesswork.
 
+### Assertions
+
+Alongside the cocotb environment, the design carries **SystemVerilog assertions** bound to both FSMs.
+Where the scoreboard checks that the right byte came out, assertions check that no protocol rule was
+broken along the way, on every cycle, whether or not a test is watching for it.
+
+They live in `sva/` and are attached with `bind`, so the synthesisable RTL is never modified.
+
+**Transmitter, 4 properties.** The line idles high whenever no frame is in flight, a start pulse
+raises `tx_busy` on the following cycle, `tx_done` is exactly one cycle wide, and `tx_done` can only
+occur with a frame actually in progress.
+
+**Receiver, 7 properties.** `rx_valid` is exactly one cycle wide, a framing error is only ever
+reported alongside a valid byte, the oversample counter stays in range, the FSM never reaches an
+undefined encoding, and a framing error must enter `RECOVER`, hold there while the line is low, then
+release to `IDLE` once it returns high.
+
+Because `bind` attaches the checker inside the module, the receiver properties can reference `state`
+and `os_count` directly, internal registers that are invisible from the pins. That makes these
+white-box checks rather than interface checks. The three `RECOVER` properties are a formal statement
+of the anti-phantom-byte behaviour, which until now existed only as a comment and a single test.
+
+Both sets were validated by injecting faults. Removing the `tx_done` default fired
+`a_done_one_cycle`; inverting the `RECOVER` exit condition fired `a_recover_holds`. Each reported the
+property by name and the exact cycle it broke.
+
+Assertions run under Verilator, since Icarus does not support concurrent assertions. Two small
+SystemVerilog testbenches drive frames through each DUT, and `scripts/run_sva.py` builds and runs
+both.
+
+### Two simulators
+
+The project is verified under two independent simulators, which catch different classes of problem.
+
+**Icarus** runs the cocotb regression. It is a 4-state simulator, modelling `X` and `Z` alongside 0
+and 1, so uninitialised logic shows up as `X` and reset bugs surface.
+
+**Verilator** runs the assertions. It compiles to C++ and is 2-state, so it cannot see `X`
+propagation at all. What it does have is concurrent assertion support and a strong linter, and its
+width checks found several implicit truncations in the RTL that Icarus never mentioned.
+
+Neither is a substitute for the other, and both run in CI.
+
 ### Bug injection
 
 Everything passing did not tell me much until I had checked that the tests were capable of failing.
@@ -362,16 +415,18 @@ transmitter talking to the receiver.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push and pull request. It installs Icarus on a clean Ubuntu
-runner, installs the pinned dependencies, runs the regression, and uploads `results.xml` as an
-artifact even when things have failed.
+`.github/workflows/ci.yml` runs two jobs in parallel on every push and pull request. The first
+installs Icarus and runs the cocotb regression through `scripts/run_regression.py`, uploading
+`results.xml` as an artifact even when things fail. The second installs Verilator and runs the
+assertion testbenches through `scripts/run_sva.py`, with lint warnings treated as build failures. The
+workflow only goes green if both pass.
 
-There is a trap here that caught me. cocotb's Makefile does not reliably return a non-zero exit code
-when tests fail, so running `make` on its own is no good as a CI gate: it will report green on a
-broken design. `scripts/run_regression.py` handles it instead. It deletes any existing `results.xml`
-before building so that a failed build cannot report stale results from the run before, it treats a
-missing `results.xml` as a failure and prints `make`'s exit code, it parses the JUnit XML and counts
-real `<failure>` elements, and it exits non-zero if anything failed.
+There is a trap in the first of those that caught me. cocotb's Makefile does not reliably return a
+non-zero exit code when tests fail, so running `make` on its own is no good as a CI gate: it will
+report green on a broken design. `scripts/run_regression.py` handles it instead. It deletes any
+existing `results.xml` before building so that a failed build cannot report stale results from the run
+before, it treats a missing `results.xml` as a failure and prints `make`'s exit code, it parses the
+JUnit XML and counts real `<failure>` elements, and it exits non-zero if anything failed.
 
 That first point is not hypothetical. An earlier version of the script left the delete out and
 cheerfully reported `15 passed` on a run where the build had failed and not one test had executed.
@@ -396,21 +451,28 @@ TOTAL             15     0
 ### Codespaces
 
 Open the repo in a Codespace and the devcontainer will install Icarus Verilog, GTKWave, a virtualenv
-with cocotb in it, and the Verilog and waveform-viewer extensions.
+with cocotb in it, and the Verilog and waveform-viewer extensions. Verilator is needed for the
+assertion flow:
 
 ```bash
-python3 scripts/run_regression.py
+sudo apt-get install -y verilator
 ```
 
 ### Locally
 
-You need Icarus Verilog 11 or later and Python 3.8 or later.
+You need Icarus Verilog 11 or later, Verilator 5 or later, and Python 3.8 or later.
 
 ```bash
-sudo apt-get install -y iverilog
+sudo apt-get install -y iverilog verilator
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python3 scripts/run_regression.py
+```
+
+### Everything
+
+```bash
+python3 scripts/run_regression.py   # 15 cocotb tests under Icarus
+python3 scripts/run_sva.py          # 2 assertion testbenches under Verilator
 ```
 
 ### A single suite, or a single test
@@ -421,8 +483,8 @@ cd sim/uart_rx && make TESTCASE=test_framing_error  # one test
 cd sim/uart_rx && make RANDOM_SEED=1787161899       # reproduce a random run
 ```
 
-Each run drops a `waves.vcd` in that simulation directory. GTKWave will open it, as will the VaporView
-VS Code extension if you would rather stay in the browser.
+Each cocotb run drops a `waves.vcd` in that simulation directory. GTKWave will open it, as will the
+VaporView VS Code extension if you would rather stay in the browser.
 
 ---
 
@@ -462,41 +524,41 @@ to 8× halves the margin. Going to 32× needs a faster internal clock and buys v
 **The synchroniser resets to 1.** A UART line idles high, so resetting those flip-flops to 0 would look
 exactly like a start bit and produce a phantom frame every time the design came out of reset.
 
+**`os_count` is deliberately one bit wider than it needs to be.** Sizing it to `$clog2(OVERSAMPLE)`
+would save four flip-flops, but it would also make the range assertion vacuous: a 4-bit counter cannot
+physically exceed 15, so checking that it does not becomes meaningless. The extra bit leaves room for a
+bug that an assertion can actually catch.
+
 ---
 
-## What it doesn't do
+## Scope
 
-The scope was deliberately narrow, so a fair amount is missing.
+8N1 only: no parity, a fixed 8-bit data width, one stop bit. Both interfaces are single-byte with no
+FIFOs, so whatever drives them has to respect `tx_busy` and consume `rx_data` when `rx_valid` pulses.
+Baud rate is set through the `CLKS_PER_BIT` parameter at compile time rather than from a register.
 
-It only speaks 8N1, with no parity, a fixed 8-bit data width and a single stop bit. There are no
-FIFOs, so both interfaces are single-byte and whatever drives them has to respect `tx_busy` and
-consume `rx_data` when `rx_valid` pulses. The baud rate is set at compile time through `CLKS_PER_BIT`
-and cannot be changed from a register.
+There is no overrun detection, so a second byte arriving before the first has been read overwrites
+`rx_data` with no flag raised. A line held low past a full frame reports as a framing error rather
+than as a distinct break condition, which a more complete UART would separate out.
 
-There is no overrun detection either, so a second byte arriving before the first has been read will
-overwrite `rx_data` with no flag raised. A line held low past a full frame reports as a framing error
-rather than as a distinct break condition, which a more complete UART would separate out.
+Coverage is functional only. Neither Icarus nor Verilator provides code or toggle coverage, which
+would need a commercial simulator.
 
-Coverage is functional only. No code, toggle or FSM-state coverage, since Icarus does not provide any
-of it; that would need a commercial simulator or Verilator.
-
-If I extend this, the order would be parity first, then RX and TX FIFOs with overrun and underrun
-flags, then a register-mapped bus interface such as AXI4-Lite or Wishbone, and eventually
-SystemVerilog Assertions for the protocol properties that are currently checked procedurally in
-Python.
+Next steps, roughly in order: parity, RX and TX FIFOs with overrun and underrun flags, a
+register-mapped bus interface such as APB or AXI4-Lite, and a UVM environment alongside the cocotb
+one.
 
 ---
 
 ## Background
 
-I am an Engineering Physics student at McMaster University. Before this I had done embedded work in
-C++, including [an I²C sensor driver with complementary-filter fusion](https://github.com/ali-abdl/mpu6050-i2c-driver),
-but no HDL at all.
+I'm an Engineering Physics student at McMaster University, coming to this from embedded work in C++
+([an I²C sensor driver with complementary-filter fusion](https://github.com/ali-abdl/mpu6050-i2c-driver)).
 
-UART seemed like the right thing to start with because the design is small enough to understand
-completely while the receiver isn't trivial: recovering timing without a clock is a real
-problem I wanted to tackle. cocotb was the other half of the appeal, since I wanted the
-verification work to be the larger part of the project.
+UART seemed like the right place to start because the design is small enough to understand completely
+while the receiver isn't trivial: recovering timing without a clock is a real problem I wanted to
+tackle. cocotb was the other half of the appeal, since I wanted the verification work to be the larger
+part of the project.
 
 ---
 
