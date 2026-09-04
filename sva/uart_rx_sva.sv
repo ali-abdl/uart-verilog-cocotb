@@ -35,7 +35,7 @@ module uart_rx_sva #(
     // 3. The oversample counter never runs past its range.
     a_oscount_in_range: assert property (
         @(posedge clk) disable iff (!rst_n)
-            os_count < OS_MAX
+            os_count <= OS_MAX
     ) else $error("os_count exceeded OVERSAMPLE-1");
 
     // 4. The FSM never lands on an undefined encoding.

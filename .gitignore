@@ -221,3 +221,4 @@ __marimo__/
 sim_build/
 results.xml
 *.vcd
+sim/sva_build/

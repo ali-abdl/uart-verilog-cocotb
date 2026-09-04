@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  cocotb:
     name: cocotb regression
     runs-on: ubuntu-latest
 
@@ -35,3 +35,22 @@ jobs:
         with:
           name: results-xml
           path: sim/*/results.xml
+
+  sva:
+    name: verilator assertions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Verilator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y verilator
+
+      - name: Report Verilator version
+        run: verilator --version
+
+      - name: Run assertion testbenches
+        run: python3 scripts/run_sva.py
