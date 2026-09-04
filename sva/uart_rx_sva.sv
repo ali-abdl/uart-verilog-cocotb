@@ -18,6 +18,8 @@ module uart_rx_sva #(
                      S_STOP    = 3'd3,
                      S_RECOVER = 3'd4;
 
+    localparam [4:0] OS_MAX = 5'(OVERSAMPLE - 1);
+
     // 1. rx_valid is exactly one cycle wide.
     a_valid_one_cycle: assert property (
         @(posedge clk) disable iff (!rst_n)
@@ -33,7 +35,7 @@ module uart_rx_sva #(
     // 3. The oversample counter never runs past its range.
     a_oscount_in_range: assert property (
         @(posedge clk) disable iff (!rst_n)
-            os_count < OVERSAMPLE
+            os_count < OS_MAX
     ) else $error("os_count exceeded OVERSAMPLE-1");
 
     // 4. The FSM never lands on an undefined encoding.

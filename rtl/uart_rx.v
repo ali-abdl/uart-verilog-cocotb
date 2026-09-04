@@ -14,6 +14,9 @@ module uart_rx #(
 
     localparam integer DIVISOR = CLKS_PER_BIT / OVERSAMPLE;
 
+    localparam [4:0] OS_HALF = 5'((OVERSAMPLE/2) - 1);
+    localparam [4:0] OS_LAST = 5'(OVERSAMPLE - 1);
+
     localparam [2:0] S_IDLE    = 3'd0,
                      S_START   = 3'd1,
                      S_DATA    = 3'd2,
@@ -78,7 +81,7 @@ always @(posedge clk) begin
 
                 S_START: begin
                     if (tick) begin
-                        if (os_count == (OVERSAMPLE/2) - 1) begin
+                        if (os_count == OS_HALF) begin
                             if (rx_sync == 1'b0) begin
                                 os_count <= 5'd0;    // now aligned to bit centres
                                 state    <= S_DATA;
@@ -93,7 +96,7 @@ always @(posedge clk) begin
 
                 S_DATA: begin
                     if (tick) begin
-                        if (os_count == OVERSAMPLE - 1) begin
+                        if (os_count == OS_LAST) begin
                             os_count  <= 5'd0;
                             shift_reg <= {rx_sync, shift_reg[7:1]};
                             if (bit_idx == 3'd7) begin
@@ -109,7 +112,7 @@ always @(posedge clk) begin
 
                 S_STOP: begin
                     if (tick) begin
-                        if (os_count == OVERSAMPLE - 1) begin
+                        if (os_count == OS_LAST) begin
                             os_count <= 5'd0;
                             rx_data  <= shift_reg;
                             rx_valid <= 1'b1;
